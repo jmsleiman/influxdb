@@ -22,7 +22,7 @@ import (
 	"github.com/influxdata/influxdb/pkg/limiter"
 	"github.com/influxdata/influxdb/query"
 	internal "github.com/influxdata/influxdb/tsdb/internal"
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
 )
 
 // monitorStatInterval is the interval at which the shard is inspected
@@ -129,8 +129,8 @@ type Shard struct {
 	stats       *ShardStatistics
 	defaultTags models.StatisticTags
 
-	baseLogger zap.Logger
-	logger     zap.Logger
+	baseLogger *zap.Logger
+	logger     *zap.Logger
 
 	EnableOnOpen bool
 }
@@ -138,7 +138,7 @@ type Shard struct {
 // NewShard returns a new initialized Shard. walPath doesn't apply to the b1 type index
 func NewShard(id uint64, path string, walPath string, opt EngineOptions) *Shard {
 	db, rp := decodeStorePath(path)
-	logger := zap.New(zap.NullEncoder())
+	logger := zap.NewNop()
 
 	s := &Shard{
 		id:      id,
@@ -168,7 +168,7 @@ func NewShard(id uint64, path string, walPath string, opt EngineOptions) *Shard 
 }
 
 // WithLogger sets the logger on the shard.
-func (s *Shard) WithLogger(log zap.Logger) {
+func (s *Shard) WithLogger(log *zap.Logger) {
 	s.baseLogger = log
 	engine, err := s.engine()
 	if err == nil {

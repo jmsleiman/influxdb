@@ -16,7 +16,7 @@ import (
 
 	"github.com/influxdata/influxdb/models"
 	"github.com/influxdata/influxdb/query"
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
 )
 
 // TSMFile represents an on-disk TSM file.
@@ -133,8 +133,8 @@ type FileStore struct {
 
 	files []TSMFile
 
-	logger       zap.Logger // Logger to be used for important messages
-	traceLogger  zap.Logger // Logger to be used when trace-logging is on.
+	logger       *zap.Logger // Logger to be used for important messages
+	traceLogger  *zap.Logger // Logger to be used when trace-logging is on.
 	traceLogging bool
 
 	stats  *FileStoreStatistics
@@ -170,7 +170,7 @@ func (f FileStat) ContainsKey(key []byte) bool {
 
 // NewFileStore returns a new instance of FileStore based on the given directory.
 func NewFileStore(dir string) *FileStore {
-	logger := zap.New(zap.NullEncoder())
+	logger := zap.NewNop()
 	fs := &FileStore{
 		dir:          dir,
 		lastModified: time.Time{},
@@ -195,7 +195,7 @@ func (f *FileStore) enableTraceLogging(enabled bool) {
 }
 
 // WithLogger sets the logger on the file store.
-func (f *FileStore) WithLogger(log zap.Logger) {
+func (f *FileStore) WithLogger(log *zap.Logger) {
 	f.logger = log.With(zap.String("service", "filestore"))
 	f.purger.logger = f.logger
 
@@ -1240,7 +1240,7 @@ type purger struct {
 	files     map[string]TSMFile
 	running   bool
 
-	logger zap.Logger
+	logger *zap.Logger
 }
 
 func (p *purger) add(files []TSMFile) {
