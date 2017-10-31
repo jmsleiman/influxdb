@@ -21,13 +21,13 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	"golang.org/x/crypto/ssh/terminal"
-
+	log "github.com/Sirupsen/logrus"
 	"github.com/influxdata/influxdb/client"
 	"github.com/influxdata/influxdb/importer/v8"
 	"github.com/influxdata/influxdb/influxql"
 	"github.com/influxdata/influxdb/models"
 	"github.com/peterh/liner"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 // ErrBlankCommand is returned when a parsed command is empty.
@@ -187,7 +187,10 @@ func (c *CommandLine) Run() error {
 
 	c.Line.SetMultiLineMode(true)
 
-	fmt.Printf("Connected to %s version %s\n", c.Client.Addr(), c.ServerVersion)
+	log.WithFields(log.Fields{
+		"address": c.Client.Addr(),
+		"version": c.ServerVersion,
+	}).Info("Connected")
 
 	c.Version()
 
@@ -351,13 +354,17 @@ func (c *CommandLine) SetAuth(cmd string) {
 	} else {
 		u, e := c.Line.Prompt("username: ")
 		if e != nil {
-			fmt.Printf("Unable to process input: %s", e)
+			log.WithFields(log.Fields{
+				"err": e,
+			}).Error("Unable to process input")
 			return
 		}
 		c.ClientConfig.Username = strings.TrimSpace(u)
 		p, e := c.Line.PasswordPrompt("password: ")
 		if e != nil {
-			fmt.Printf("Unable to process input: %s", e)
+			log.WithFields(log.Fields{
+				"err": e,
+			}).Error("Unable to process input")
 			return
 		}
 		c.ClientConfig.Password = p
@@ -373,15 +380,17 @@ func (c *CommandLine) clear(cmd string) {
 	switch v {
 	case "database", "db":
 		c.Database = ""
-		fmt.Println("database context cleared")
+		log.Info("database context cleared")
 		return
 	case "retention policy", "rp":
 		c.RetentionPolicy = ""
-		fmt.Println("retention policy context cleared")
+		log.Info("retention policy context cleared")
 		return
 	default:
 		if len(args) > 1 {
-			fmt.Printf("invalid command %q.\n", v)
+			log.WithFields(log.Fields{
+				"command": v,
+			}).Error("invalid command")
 		}
 		fmt.Println(`Possible commands for 'clear' are:
     # Clear the database context
@@ -398,14 +407,18 @@ func (c *CommandLine) clear(cmd string) {
 func (c *CommandLine) use(cmd string) {
 	args := strings.Split(strings.TrimSuffix(strings.TrimSpace(cmd), ";"), " ")
 	if len(args) != 2 {
-		fmt.Printf("Could not parse database name from %q.\n", cmd)
+		log.WithFields(log.Fields{
+			"command": cmd,
+		}).Error("Could not parse database name")
 		return
 	}
 
 	stmt := args[1]
 	db, rp, err := parseDatabaseAndRetentionPolicy([]byte(stmt))
 	if err != nil {
-		fmt.Printf("Unable to parse database or retention policy from %s", stmt)
+		log.WithFields(log.Fields{
+			"statement": stmt,
+		}).Error("Unable to parse database or retention policy")
 		return
 	}
 
@@ -414,14 +427,18 @@ func (c *CommandLine) use(cmd string) {
 	}
 
 	c.Database = db
-	fmt.Printf("Using database %s\n", db)
+	log.WithFields(log.Fields{
+		"db": db,
+	}).Info("Using database")
 
 	if rp != "" {
 		if !c.retentionPolicyExists(db, rp) {
 			return
 		}
 		c.RetentionPolicy = rp
-		fmt.Printf("Using retention policy %s\n", rp)
+		log.WithFields(log.Fields{
+			"rp": rp,
+		}).Info("Using retention policy")
 	}
 }
 
@@ -429,18 +446,24 @@ func (c *CommandLine) databaseExists(db string) bool {
 	// Validate if specified database exists
 	response, err := c.Client.Query(client.Query{Command: "SHOW DATABASES"})
 	if err != nil {
-		fmt.Printf("ERR: %s\n", err)
+		log.WithFields(log.Fields{
+			"err": err,
+		}).Error("failed to SHOW DATABASES")
 		return false
 	} else if err := response.Error(); err != nil {
 		if c.ClientConfig.Username == "" {
-			fmt.Printf("ERR: %s\n", err)
+			log.WithFields(log.Fields{
+				"err": err,
+			}).Error("failed to SHOW DATABASES -- username blank?")
 			return false
 		}
 		// TODO(jsternberg): Fix SHOW DATABASES to be user-aware #6397.
 		// If we are unable to run SHOW DATABASES, display a warning and use the
 		// database anyway in case the person doesn't have permission to run the
 		// command, but does have permission to use the database.
-		fmt.Printf("WARN: %s\n", err)
+		log.WithFields(log.Fields{
+			"err": err,
+		}).Warn("some kind of error")
 	} else {
 		// Verify the provided database exists
 		if databaseExists := func() bool {
@@ -459,7 +482,9 @@ func (c *CommandLine) databaseExists(db string) bool {
 			}
 			return false
 		}(); !databaseExists {
-			fmt.Printf("ERR: Database %s doesn't exist. Run SHOW DATABASES for a list of existing databases.\n", db)
+			log.WithFields(log.Fields{
+				"db": db,
+			}).Error("Database doesn't exist. Run SHOW DATABASES for a list of existing databases.")
 			return false
 		}
 	}
@@ -470,14 +495,23 @@ func (c *CommandLine) retentionPolicyExists(db, rp string) bool {
 	// Validate if specified database exists
 	response, err := c.Client.Query(client.Query{Command: fmt.Sprintf("SHOW RETENTION POLICIES ON %q", db)})
 	if err != nil {
-		fmt.Printf("ERR: %s\n", err)
+		log.WithFields(log.Fields{
+			"err": err,
+			"db":  db,
+		}).Error("failed to SHOW RETENTION POLICIES ON db")
 		return false
 	} else if err := response.Error(); err != nil {
 		if c.ClientConfig.Username == "" {
-			fmt.Printf("ERR: %s\n", err)
+			log.WithFields(log.Fields{
+				"err": err,
+				"db":  db,
+			}).Error("client username blank?")
 			return false
 		}
-		fmt.Printf("WARN: %s\n", err)
+		log.WithFields(log.Fields{
+			"err": err,
+			"db":  db,
+		}).Warn("error occured trying to SHOW RETENTION POLICIES ON db")
 	} else {
 		// Verify the provided database exists
 		if retentionPolicyExists := func() bool {
@@ -497,7 +531,10 @@ func (c *CommandLine) retentionPolicyExists(db, rp string) bool {
 			}
 			return false
 		}(); !retentionPolicyExists {
-			fmt.Printf("ERR: RETENTION POLICY %s doesn't exist. Run SHOW RETENTION POLICIES ON %q for a list of existing retention polices.\n", rp, db)
+			log.WithFields(log.Fields{
+				"rp": db,
+				"db": db,
+			}).Warn("RETENTION POLICY rp doesn't exist. Run SHOW RETENTION POLICIES ON db for a list of existing retention polices.")
 			return false
 		}
 	}
@@ -523,9 +560,13 @@ func (c *CommandLine) SetChunkSize(cmd string) {
 		if c.ChunkSize <= 0 {
 			c.ChunkSize = 0
 		}
-		fmt.Printf("chunk size set to %d\n", c.ChunkSize)
+		log.WithFields(log.Fields{
+			"chunksize": c.ChunkSize,
+		}).Info("chunk size set")
 	} else {
-		fmt.Printf("unable to parse chunk size from %q\n", cmd)
+		log.WithFields(log.Fields{
+			"cmd": cmd,
+		}).Warn("unable to parse chunk size from cmd")
 	}
 }
 
@@ -545,7 +586,7 @@ func (c *CommandLine) SetPrecision(cmd string) {
 		c.ClientConfig.Precision = ""
 		c.Client.SetPrecision(c.ClientConfig.Precision)
 	default:
-		fmt.Printf("Unknown precision %q. Please use rfc3339, h, m, s, ms, u or ns.\n", cmd)
+		log.Print("Unknown precision %q. Please use rfc3339, h, m, s, ms, u or ns.\n", cmd)
 	}
 }
 
@@ -560,7 +601,7 @@ func (c *CommandLine) SetFormat(cmd string) {
 	case "json", "csv", "column":
 		c.Format = cmd
 	default:
-		fmt.Printf("Unknown format %q. Please use json, csv, or column.\n", cmd)
+		log.Print("Unknown format %q. Please use json, csv, or column.\n", cmd)
 	}
 }
 
@@ -573,7 +614,7 @@ func (c *CommandLine) SetWriteConsistency(cmd string) {
 
 	_, err := models.ParseConsistencyLevel(cmd)
 	if err != nil {
-		fmt.Printf("Unknown consistency level %q. Please use any, one, quorum, or all.\n", cmd)
+		log.Print("Unknown consistency level %q. Please use any, one, quorum, or all.\n", cmd)
 		return
 	}
 	c.ClientConfig.WriteConsistency = cmd
@@ -648,7 +689,7 @@ func (c *CommandLine) parseInto(stmt string) *client.BatchPoints {
 
 	return &client.BatchPoints{
 		Points: []client.Point{
-			client.Point{Raw: stmt},
+			{Raw: stmt},
 		},
 		Database:         db,
 		RetentionPolicy:  rp,
@@ -668,7 +709,7 @@ func (c *CommandLine) parseInsert(stmt string) (*client.BatchPoints, error) {
 	}
 	return &client.BatchPoints{
 		Points: []client.Point{
-			client.Point{Raw: point},
+			{Raw: point},
 		},
 		Database:         c.Database,
 		RetentionPolicy:  c.RetentionPolicy,
@@ -681,11 +722,15 @@ func (c *CommandLine) parseInsert(stmt string) (*client.BatchPoints, error) {
 func (c *CommandLine) Insert(stmt string) error {
 	bp, err := c.parseInsert(stmt)
 	if err != nil {
-		fmt.Printf("ERR: %s\n", err)
+		log.WithFields(log.Fields{
+			"err": err,
+		}).Error("failed to insert")
 		return nil
 	}
 	if _, err := c.Client.Write(*bp); err != nil {
-		fmt.Printf("ERR: %s\n", err)
+		log.WithFields(log.Fields{
+			"err": err,
+		}).Error("failed to write")
 		if c.Database == "" {
 			fmt.Println("Note: error may be due to not setting a database or retention policy.")
 			fmt.Println(`Please set a database with the command "use <database>" or`)
@@ -711,7 +756,9 @@ func (c *CommandLine) ExecuteQuery(query string) error {
 	if c.RetentionPolicy != "" {
 		pq, err := influxql.NewParser(strings.NewReader(query)).ParseQuery()
 		if err != nil {
-			fmt.Printf("ERR: %s\n", err)
+			log.WithFields(log.Fields{
+				"err": err,
+			}).Error("failed to execute query")
 			return err
 		}
 		for _, stmt := range pq.Statements {
@@ -755,12 +802,16 @@ func (c *CommandLine) ExecuteQuery(query string) error {
 				err = errors.New("aborted by user")
 			}
 		}
-		fmt.Printf("ERR: %s\n", err)
+		log.WithFields(log.Fields{
+			"err": err,
+		}).Error("failed to something?")
 		return err
 	}
 	c.FormatResponse(response, os.Stdout)
 	if err := response.Error(); err != nil {
-		fmt.Printf("ERR: %s\n", response.Error())
+		log.WithFields(log.Fields{
+			"err": response.Error(),
+		}).Error("received an error response")
 		if c.Database == "" {
 			fmt.Println("Warning: It is possible this error is due to not setting a database.")
 			fmt.Println(`Please set a database with the command "use <database>".`)
@@ -1023,7 +1074,7 @@ func (c *CommandLine) history() {
 
 func (c *CommandLine) saveHistory() {
 	if historyFile, err := os.Create(c.historyFilePath); err != nil {
-		fmt.Printf("There was an error writing history file: %s\n", err)
+		log.Print("There was an error writing history file: %s\n", err)
 	} else {
 		c.Line.WriteHistory(historyFile)
 		historyFile.Close()
